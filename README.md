@@ -244,8 +244,78 @@ is not only very reliable, it is also very fast.
 
 ## Applications
 ### High performance with high consistency
+In traditional applications, when you want to use caching, there is a trade-off
+to be made between high performance and consistency with the database. When we
+use Version Streams with a Multi Snapshot Cache, we no longer need to make that
+trade-off.
 
-### Working with a single snapshot across multiple services
+Consider the following flow
+```
+    Application           Multi Snapshot Cache          Database
+        |                           |                        |
+        |----------------- start transaction --------------->|
+        |                           |                        |
+        |---------------- get current version -------------->|
+        |<- - - - - - - - - -  version V  - - - - - - - - - -|
+        |                           |                        |
+        |------ get entity E ------>|                        |
+        |      with version V       |                        |
+        |                       cache hit                    |
+        |                           |                        |
+        |--------------- get other data -------------------->|
+        |                           |                        |
+        |-----------------  end transaction  --------------->|
+        |                           |                        |
+```
+
+`TODO: rewrite, this makes no sense {`
+We assume that the transaction runs on MySQL with isolation level
+"Repeatable Read". When we ask for the current version, we get back version `V`.
+This version `V` is calculated based on all the data in the transactions
+snapshot of the database.
+
+The data in the cache is part of the Version Streams snapshot on version `V`. 
+If we assume that the version is updated atomically with the data in the 
+database, then we can conclude that the data in the cache is identical to
+the corresponding data in the database snapshot.
+
+The data in our cache is just as consistent as if we were to query the database
+again for those entities, but without having to sacrifice performance.
+`}`
+
+TODO: maybe use mathematical language to proof this
+
+### Using a single snapshot across multiple services
+We can extend the previous idea and put a REST interface between the
+Multi Snapshot Cache and the repository, and then put a cache in other
+services. This way, we have a consistent snapshot of the data across
+all services.
+
+It can work like this:
+
+```
+    User            Service 1           Service 2        Master Service    
+     |                    |                 |                 |
+     |------------------ get current version ---------------->|
+     |<- - - - - - - - - - -  version V  - - - - - - - - - - -|
+     |                    |                 |                 |
+     |-- interact with -->|                 |                 |
+     |    snapshot V      |---------- get data with --------->| 
+     |                    |            snapshot V             |
+     |                    |                 |                 |
+     |----------- interact with ----------->|                 |
+     |             snapshot V               |                 |
+     |                    |             cache hit             |
+     |                    |                 |                 |
+     |                    |<-- coordinate ->|                 |
+     |                    | with snapshot V |                 |
+     |                    |                 |                 |
+```
+
+All services use the same data and this will make the system as a whole more
+reliable. When the data is eventual consistent across the services, there is
+a chance that things will go wrong because different services might make
+different assumptions or decisions based on the different data.
 
 ## Implementation details
 The tricky part is that we don't want store the whole state of a snapshot in
