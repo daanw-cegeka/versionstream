@@ -3,17 +3,20 @@ package se.daan.versionstream
 import java.sql.Connection
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import software.amazon.awssdk.services.dynamodb.DynamoDbClient
+import software.amazon.awssdk.services.dynamodb.model.AttributeValue
+import software.amazon.awssdk.services.dynamodb.model.PutItemRequest
+import software.amazon.awssdk.services.dynamodb.model.QueryRequest
 import java.sql.ResultSet
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.reflect.KClass
 
 interface Repo {
     fun append(id: Int, type: KClass<*>, entity: String?)
-    fun getLastVersion(): Int
+    fun getLastVersion(): Int?
     fun fetchAllVersions(from: Int, to: Int): List<Version>
     fun <T : Any> fetch(clazz: KClass<T>, id: Int, version: Int): T?
     fun previousVersion(clazz: KClass<*>, id: Int, version: Int): Int?
-    fun clear()
 }
 
 inline fun <reified T : Any> Repo.append(id: Int, entity: T) {
@@ -22,8 +25,8 @@ inline fun <reified T : Any> Repo.append(id: Int, entity: T) {
 
 class MySQLRepo(
     private val connection: Connection,
-): Repo {
-    override fun clear() {
+) : Repo {
+    fun clear() {
         connection.prepareStatement("delete from versionstream").execute()
     }
 
@@ -42,14 +45,17 @@ class MySQLRepo(
         statement.execute()
     }
 
-    override fun getLastVersion(): Int {
+    override fun getLastVersion(): Int? {
         val statement = connection.prepareStatement(
             "select max(version) from versionstream"
         )
 
         val executeQuery = statement.executeQuery()
-        assert(executeQuery.next())
-        return executeQuery.getInt(1)
+        return if (executeQuery.next()) {
+            executeQuery.getInt(1)
+        } else {
+            null
+        }
     }
 
     override fun fetchAllVersions(from: Int, to: Int): List<Version> {
@@ -90,21 +96,7 @@ class MySQLRepo(
 
     private fun parseData(query: ResultSet, clazz: KClass<*>): Any? {
         val data: String? = query.getString("data")
-        return if (data == null) {
-            null
-        } else {
-            when (clazz) {
-                ActivityDefinition::class ->
-                    Json.decodeFromString<ActivityDefinition>(data)
-
-                ActivityGroup::class ->
-                    Json.decodeFromString<ActivityGroup>(data)
-
-                String::class -> null
-
-                else -> throw UnsupportedOperationException()
-            }
-        }
+        return parseData(data, clazz)
     }
 
     override fun previousVersion(clazz: KClass<*>, id: Int, version: Int): Int? {
@@ -122,6 +114,98 @@ class MySQLRepo(
         } else {
             null
         }
+    }
+}
+
+
+private fun parseData(data: String?, clazz: KClass<*>): Any? {
+    return if (data == null) {
+        null
+    } else {
+        when (clazz) {
+            ActivityDefinition::class ->
+                Json.decodeFromString<ActivityDefinition>(data)
+
+            ActivityGroup::class ->
+                Json.decodeFromString<ActivityGroup>(data)
+
+            String::class -> null
+
+            else -> throw UnsupportedOperationException()
+        }
+    }
+}
+
+/**
+ *  +-----------------+----+---------+-----+
+ *  | PK              | SK | e       |  d  |
+ *  +-----------------+----+---------+-----+
+ *  | versionstream   | b1 | entity1 | ... |
+ *  |                 | b2 | entity2 | ... |
+ *  +-----------------+----+---------+-----+
+ */
+class DynamoDbRepo(
+    private val client: DynamoDbClient,
+    private val table: String,
+) : Repo {
+    override fun append(id: Int, type: KClass<*>, entity: String?) {
+        val newVersion = (getLastVersion()?:-1) + 1
+        val item = mapOf(
+            "pk" to AttributeValue.fromS("versionstream"),
+            "sk" to AttributeValue.fromS(sortableInt(newVersion)),
+            "e" to AttributeValue.fromS(type.simpleName),
+            "d" to entity?.let { AttributeValue.fromS(it) },
+        ).filterValues { it != null }
+
+        client.putItem(
+            PutItemRequest.builder()
+                .tableName(table)
+                .item(item)
+                .conditionExpression("attribute_not_exists(pk)")
+                .build()
+        )
+    }
+
+    private fun sortableInt(int: Int): String {
+        val asString = int.toString()
+        val prefix = ('a'.code + asString.length).toChar()
+        return prefix + asString
+    }
+
+    override fun getLastVersion(): Int? {
+        return client.query(
+            QueryRequest.builder()
+                .tableName(table)
+                .keyConditionExpression("pk = :pk AND begins_with(sk, :skprefix)")
+                .expressionAttributeValues(
+                    mapOf(
+                        ":pk" to AttributeValue.fromS("versionstream"),
+                        ":skprefix" to AttributeValue.fromS(""),
+                    )
+                )
+                .scanIndexForward(false)
+                .limit(1)
+                // We want consistent because if events are coming in quickly, it must not fail
+                .consistentRead(true)
+                .build()
+        ).items()
+            .map {
+                val version = it["sk"]!!.s()!!.drop(1).toInt()
+                version
+            }
+            .firstOrNull()
+    }
+
+    override fun fetchAllVersions(from: Int, to: Int): List<Version> {
+        TODO("Not yet implemented")
+    }
+
+    override fun <T : Any> fetch(clazz: KClass<T>, id: Int, version: Int): T? {
+        TODO("Not yet implemented")
+    }
+
+    override fun previousVersion(clazz: KClass<*>, id: Int, version: Int): Int? {
+        TODO("Not yet implemented")
     }
 }
 
@@ -154,7 +238,7 @@ class MultiSnapshotCache(
         }
     }
 
-    fun <T: Any> getAll(clazz: KClass<T>, version: Int): List<T> {
+    fun <T : Any> getAll(clazz: KClass<T>, version: Int): List<T> {
         checkCurrentVersions(version)
         return (currentEntityVersions[clazz] ?: emptyMap())
             .entries

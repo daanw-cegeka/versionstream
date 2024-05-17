@@ -11,9 +11,9 @@ repositories {
 }
 
 dependencies {
+    implementation(platform("software.amazon.awssdk:bom:2.25.49"))
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3")
-
-//    implementation("")
+    implementation("software.amazon.awssdk:dynamodb")
     runtimeOnly("mysql:mysql-connector-java:8.0.33")
     testImplementation(kotlin("test"))
 }
