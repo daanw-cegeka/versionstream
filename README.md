@@ -1,7 +1,7 @@
 # Version Streams
 ## What is a version stream?
 A version stream is an ordered collection of all versions of the state of a group of
-entities.
+entities. Another way to look at it, is like a key-value store with a full history.
 
 Initially the version stream is empty. Then we create a new entity `Entity 1`.
 The stream now has version `0` and so does the state of `Entity 1`. We say that
@@ -419,9 +419,9 @@ the original Version Stream.
 
 ## Partitioned streams
 We can also partition a stream. Let's say that we originally had stream with
-all users, but the application is becoming more popular. Then we can design
+all users, but the application is becoming more popular. Then we can redesign
 our system like this: instead of creating one stream for all users, we create
-a stream for the even users and one for the odd users.
+one stream for the even users and one for the odd users.
 
 Stream 1:
 ```
@@ -445,7 +445,7 @@ User 4                  | v2 |
 | User 2 | v1              |
 | User 4 | v2              |
 
-We can then later recombine them with the Stream-of-Stream pattern.
+We can then later recombine them with the Stream-of-Streams pattern.
 
 ## Stream-of-Streams
 Sometimes we are forced to split a stream into multiple streams. Typically,
@@ -485,8 +485,8 @@ a key, and we will use the streams version as the value that changes over time.
 
 Stream-of-Streams:
 ```
-Stream1    | v0 = v0 |             | v2 = v1 |                          | v5 = v2 |
-Stream2                | v1 = v0 |              | v3 = v1 | | v4 = v2 |
+Stream1    | v0 -> v0 |            | v2 -> v1 |                         | v5 -> v2 |
+Stream2                | v1 -> v0 |            | v3 -> v1 | | v4 -> v2 |
 ```
 
 | Entity   | Current version | Maps to        |
@@ -503,8 +503,8 @@ balance latency with performance without losing updates.
 
 Stream-of-Streams:
 ```
-Stream1    | v0 = v0 |             | v2 = v2 |
-Stream2                | v1 = v2 |
+Stream1    | v0 -> v0 |            | v2 -> v2 |
+Stream2                | v1 -> v2 |
 ```
 
 | Entity   | Current version | Maps to        |
