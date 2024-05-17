@@ -95,6 +95,12 @@ A lost updates can easily be corrected. If we are lucky, it will fix itself
 when the next version comes along. Otherwise, we can also manually "resend"
 the missing data.
 
+A fun way where this can be used is in online games. Every pawn and every
+dice can be an Entity. The clients connect to the server and poll for
+state updates. When a client loses the connection, it can easily reconnect and
+continue where it left off. Polling sounds stupid, but this is actually how
+SQS on AWS works.
+
 ### Caching HTTP calls
 Because the versions are immutable, we can take advantage of the caching
 facilities of HTTP.
