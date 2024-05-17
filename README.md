@@ -260,9 +260,9 @@ infrequently, then we can store the most recent version of the entities
 
 Take for example the following Version Stream:
 ```
-Entity 1    | v0 |               | v3 (RIP) |
+Entity 1    | v0 |               |(v3)|
 Entity 2           | v1 | | v2 |
-Entity 3                                      | v4 |
+Entity 3                                | v4 |
 ```
 
 | Entity     | Current version |
@@ -282,7 +282,7 @@ We can represent it like this:
 
 To calculate the state at version 2, we can calculate backwards:
 - Entity 1 is currently version 3, which is too new, so we fall back to
-    version 0. Observe we have undone the deletion of Entity 1.
+    version 0. Observe that we have undone the deletion of Entity 1.
 - Entity 2 is at version 2, this is fine.
 - Entity 3 is at version 4, there is nothing to fall back to, so we conclude
     that it did not yet exist at version 2 of the Version Stream.
@@ -294,6 +294,7 @@ we will only use one stream called `0`.
 ```
 MultiSnapshotCache {
     repo: Repository
+    
     currentVersion: Int
     currentEntityVersions: Map<EntityId, Version>
     dataCache: Cache<(EntityId, Version), Data>
@@ -328,7 +329,7 @@ MultiSnapshotCache {
     getCacheEntry(entityId, version) {
         entry = dataCache[(entityId, version)]
         if(entry == null) {
-            entry = repo.fetchData(entityId, version)
+            entry = repo.fetchData(0, entityId, version)
             dataCache[(entityId, version)] = entry
         }
         return entry
@@ -351,8 +352,21 @@ concurrent access. In the JVM ecosystem, a `ConcurrentHashMap` would suffice.
 It is also important to update `currentVersion` after `currentyEntityVersions`
 have been updated. It's better to do the work twice, then it is to lose updates.
 
-### About caching data and storing the current versions.
-TODO
+### About caching data and storing the current versions
+For caching the data, any eviction strategy is safe to use. For example FIFO,
+LRU, LFU or even no eviction.
+
+In the pseudocode we always store the current versions. It is also possible to
+use an evicting cache for the current version. But because it is a very small
+structure we can keep everything in memory. It can be handy to query something
+like: give me all the products at version `V`. To do this query you need a list
+of products to start with. Otherwise, we might need to go to the DB every time
+to check if we are not missing entries.
+
+If the entries can be evicted you also need to be able to make a distinction
+between "we don't know" and "we know there is no such entity". Otherwise, it
+needs to go to the database every time an entity is queried that does not
+exist.
 
 # Sub streams
 
