@@ -368,8 +368,149 @@ between "we don't know" and "we know there is no such entity". Otherwise, it
 needs to go to the database every time an entity is queried that does not
 exist.
 
-# Sub streams
+# Additional patterns
+## Sub streams
+Another technique that can be used is to project a Version Stream onto multiple
+sub-streams.
 
-# Partitioned streams
+Let's take the following example
 
-# Stream of Stream
+```
+User 1    | v0 |               |(v3)|
+User 2           | v1 | | v2 |
+Feature 1                             | v4 |
+Feature 2                                    | v5 |
+```
+
+| Entity    | Current version |
+|-----------|-----------------|
+| (User 1)  | (v3)            |
+| User 2    | v2              |
+| Feature 1 | v4              |
+| Feature 2 | v5              |
+
+We can also look at this as two different streams. One for the users and
+one for the features.
+
+```
+User 1    | v0 |               |(v3)|
+User 2           | v1 | | v2 |
+```
+
+| Entity    | Current version |
+|-----------|-----------------|
+| (User 1)  | (v3)            |
+| User 2    | v2              |
+
+and
+
+```
+Feature 1    | v4 |
+Feature 2           | v5 |
+```
+
+| Entity    | Current version |
+|-----------|-----------------|
+| Feature 1 | v4              |
+| Feature 2 | v5              |
+
+Note that these are just projections / views. New versions are appended to
+the original Version Stream.
+
+## Partitioned streams
+We can also partition a stream. Let's say that we originally had stream with
+all users, but the application is becoming more popular. Then we can design
+our system like this: instead of creating one stream for all users, we create
+a stream for the even users and one for the odd users.
+
+Stream 1:
+```
+User 1    | v0 |  |(v1)|
+User 3                   | v2 |
+```
+
+| Entity   | Current version |
+|----------|-----------------|
+| (User 1) | (v1)            |
+| User 3   | v2              |
+
+Stream 2:
+```
+User 2    | v0 | | v1 |
+User 4                  | v2 |
+```
+
+| Entity | Current version |
+|--------|-----------------|
+| User 2 | v1              |
+| User 4 | v2              |
+
+We can then later recombine them with the Stream-of-Stream pattern.
+
+## Stream-of-Streams
+Sometimes we are forced to split a stream into multiple streams. Typically,
+because of a performance bottleneck. The good news is that there is a way
+to recombine them.
+
+It is also possible to combine streams of different types. For example, we
+can have a stream for each type of master data and then combine them into one
+big stream of all master data.
+
+Let's take again the users example.
+
+Stream 1:
+```
+User 1    | v0 |  |(v1)|
+User 3                   | v2 |
+```
+
+| Entity   | Current version |
+|----------|-----------------|
+| (User 1) | (v1)            |
+| User 3   | v2              |
+
+Stream 2:
+```
+User 2    | v0 | | v1 |
+User 4                  | v2 |
+```
+
+| Entity | Current version |
+|--------|-----------------|
+| User 2 | v1              |
+| User 4 | v2              |
+
+We can add an extra stream. In this new stream every original stream will be
+a key, and we will use the streams version as the value that changes over time.
+
+Stream-of-Streams:
+```
+Stream1    | v0 = v0 |             | v2 = v1 |                          | v5 = v2 |
+Stream2                | v1 = v0 |              | v3 = v1 | | v4 = v2 |
+```
+
+| Entity   | Current version | Maps to        |
+|----------|-----------------|----------------|
+| Stream 1 | v2              | v2 of Stream 1 |
+| Stream 2 | v1              | v2 of Stream 2 |
+
+But as you can see, the amount of version can explode. And this while we were
+already dealing with a performance bottleneck.
+
+We can solve this by sampling or buffering the original streams. Implementing
+this is non-trivial because there is concurrency going on, and we have to
+balance latency with performance without losing updates.
+
+Stream-of-Streams:
+```
+Stream1    | v0 = v0 |             | v2 = v2 |
+Stream2                | v1 = v2 |
+```
+
+| Entity   | Current version | Maps to        |
+|----------|-----------------|----------------|
+| Stream 1 | v2              | v2 of Stream 1 |
+| Stream 2 | v1              | v2 of Stream 2 |
+
+## Stream-of-Streams-of-Streams
+Sure why not?
